@@ -50,7 +50,7 @@ WNNSHARED global;
 //    - the character code (mc) matches the hotkey's (hc).
 #define IS_HOTKEY(mf, mv, mc, hf, hc)  \
                             ((BOOL)((( mf & hf ) == hf ) && \
-                                    ((( mf & KC_VIRTUALKEY) && ( mv  == hc )) || \
+                                    ((( mf & KC_VIRTUALKEY) && ( mv == hc )) || \
                                                                ( mc == hc ))))
 
 /* -------------------------------------------------------------------------- *
@@ -59,23 +59,27 @@ WNNSHARED global;
  * -------------------------------------------------------------------------- */
 BOOL EXPENTRY WnnHookInput( HAB hab, PQMSG pQmsg, USHORT fs )
 {
-    CHAR   c;
+    UCHAR  c;
+    UCHAR  scan;
     USHORT fsFlags;
     USHORT usVK;
 
+
     switch( pQmsg->msg ) {
         case WM_CHAR:
-            fsFlags = SHORT1FROMMP( pQmsg->mp1  );
+
+            fsFlags = SHORT1FROMMP( pQmsg->mp1 );
             if ( fsFlags & KC_KEYUP ) break;    // don't process key-up events
 
-            c    = (CHAR)( SHORT1FROMMP( pQmsg->mp2 ) & 0xFF );
+            c    = (UCHAR)( SHORT1FROMMP( pQmsg->mp2 ) & 0xFF );
+            scan = CHAR4FROMMP( pQmsg->mp2 );
             usVK = SHORT2FROMMP( pQmsg->mp2 );
 
             // Check for hotkey commands first (regardless of mode)
 
 //          if ((( fsFlags & global.fsVKInput ) == global.fsVKInput ) && ( c == global.usKeyInput )) {
             if ( IS_HOTKEY( fsFlags, usVK, c, global.fsVKInput, global.usKeyInput )) {
-                // toggle input hotkey
+                // Toggle input hotkey
                 WinPostMsg( g_hwndClient, WM_COMMAND,
                             MPFROMSHORT( ID_HOTKEY_INPUT ),
                             MPFROM2SHORT( CMDSRC_OTHER, FALSE ));
@@ -142,12 +146,21 @@ BOOL EXPENTRY WnnHookInput( HAB hab, PQMSG pQmsg, USHORT fs )
                 }
             }
 
+
             // Check for input characters
             if ( fsFlags & KC_CHAR ) {
+
+                // Special treatment for certain Japanese keyboard scancodes
+                if ( !( usVK & VK_SHIFT ) && !( usVK & VK_ALT ) && !( usVK & VK_CTRL )) {
+                    if ( scan == 0x7D )      c = 0x7E;  // halfwidth yen --> ASCII backslash
+                    else if ( scan == 0x73 ) c = 0xFE;  // Japanese backslash --> special value 0xFE
+                }
+
                 if ( global.fsMode & 0xFF ) {           // Any conversion mode is active
-                    if ( !( usVK & VK_NUMLOCK ) && ( c > 0x20 && c < 0x7E )) {
+                    if ( !( usVK & VK_NUMLOCK ) && (( c > 0x20 && c < 0x7F ) || ( c >= 0xFE ))) {
                         // Convertible byte value
                         global.hwndSource = pQmsg->hwnd;
+                        pQmsg->mp2 = MPFROM2SHORT( SHORT1FROMMP( pQmsg->mp2 ) | c, usVK );
                         WinPostMsg( g_hwndClient, global.wmAddChar, pQmsg->mp1, pQmsg->mp2 );
                         return TRUE;
                     }
@@ -158,7 +171,7 @@ BOOL EXPENTRY WnnHookInput( HAB hab, PQMSG pQmsg, USHORT fs )
             if ( global.fsMode & MODE_CJK_ENTRY )
                 return TRUE;
 
-            // Otherwise pass everything else through to the source window
+            // Otherwise leave everything else for to the source window to handle
             break;
 
     }

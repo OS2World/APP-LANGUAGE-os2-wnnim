@@ -76,15 +76,18 @@ extern int              _cdecl jl_yomi_len( struct wnn_buf *buf, register int bu
 extern int              _cdecl jl_set_jikouho( register struct wnn_buf *buf, register int offset );
 extern int              _cdecl jl_zenkouho( register struct wnn_buf *buf, int bun_no, int use_maep, int uniq_level );
 extern int              _cdecl jl_zenkouho_dai( register struct wnn_buf *buf, int bun_no, int bun_no2, int use_maep, int uniq_level );
+extern int              _cdecl jl_update_hindo( register struct wnn_buf *buf, int bun_no, int bun_no2 );
+extern int              _cdecl jl_word_add_e( struct wnn_env *env, int dic_no, w_char *yomi, w_char *kanji, w_char *comment, int hinsi, int init_hindo );
+extern int              _cdecl jl_dic_save_all_e( struct wnn_env *env );
 extern int              _cdecl wnn_get_area( struct wnn_buf *buf, register int bun_no, register int bun_no2, w_char *area, int kanjip );
 
 
 // Internal utility functions
 //
-INT  _Optlink StrTransform( UniChar *puszString, INT iMax, XformObject xform );
-INT  _Optlink MakeKatakana( void );
-INT  _Optlink MakeHalfKana( void );
-BYTE _Optlink PreprocessKana( USHORT fsMode, PUSHORT pusIn, PUSHORT pusOut, PSZ pszOutput, USHORT cbOutput );
+INT  IM_CALLCNV StrTransform( UniChar *puszString, INT iMax, XformObject xform );
+INT  IM_CALLCNV MakeKatakana( void );
+INT  IM_CALLCNV MakeHalfKana( void );
+BYTE IM_CALLCNV PreprocessKana( USHORT fsMode, PUSHORT pusIn, PUSHORT pusOut, PSZ pszOutput, USHORT cbOutput );
 
 
 
@@ -176,13 +179,15 @@ int _cdecl ErrorFunc( const char *pcsz )
  * (FreeWnn romkan), this involves loading the romkan table files.           *
  *                                                                           *
  * ------------------------------------------------------------------------- */
-INT _Optlink InitInputMethod( PSZ pszPath, USHORT usLang )
+INT IM_CALLCNV InitInputMethod( PSZ pszPath, USHORT usLang )
 {
     USHORT cpEUC;
     CHAR   szLang[ 6 ];
-    CHAR   szModeHyo[ CCHMAXPATH ];
+    CHAR   szModeHyo[ CCHMAXPATH ] = {0};
     int    rc;
-
+    CHAR   *c;
+    PSZ    pszFile = NULL;
+    USHORT cbFile;
 
     switch ( usLang ) {
         case MODE_CN: strcpy( szLang, "zh_CN"); break;
@@ -192,23 +197,40 @@ INT _Optlink InitInputMethod( PSZ pszPath, USHORT usLang )
     }
 
     if ( pszPath == NULL ) {
+        /* If ROMKAN_TABLE is defined and includes a directory specifier, use
+         * it as the full path to the romkan config file.  If it is defined but
+         * doesn't contain a directory specifier, treat it as a filename only,
+         * and append it to the directory path as determined below.
+         */
         pszPath = getenv("ROMKAN_TABLE");
-        if ( pszPath )
-            strncpy( szModeHyo, pszPath, CCHMAXPATH - 1 );
-        else {
-            pszPath = getenv("WNNLIB");
-            if ( pszPath )
-                sprintf( szModeHyo, "%.240s/%.5s/rk/mode", pszPath, szLang );
+        if ( pszPath ) {
+            if ( strpbrk( pszPath, ":/\\") == NULL )
+                pszFile = strdup( pszPath );
             else
-                sprintf( szModeHyo, "/@unixroot/usr/lib/Wnn/%.5s/rk/mode", szLang );
+                strncpy( szModeHyo, pszPath, CCHMAXPATH - 1 );
+        }
+        if ( !szModeHyo[0] ) {
+            pszPath = getenv("WNNLIB");
+            if ( !pszFile )
+                pszFile = strdup("mode");
+            if ( pszPath )
+                sprintf( szModeHyo, "%.200s/%.5s/rk/%.49s", pszPath, szLang, pszFile );
+            else
+                sprintf( szModeHyo, "/@unixroot/usr/lib/wnn/%.5s/rk/%.49s", szLang, pszFile );
         }
         pszPath = szModeHyo;
+        if ( pszFile ) free( pszFile );
+        while (( c = strchr( pszPath, '\\')) != NULL ) *c = '/';
     }
+
+    _PmpfF(("Initializing romkan engine using configuration %s", pszPath ));
+
+    // TODO make sure the config file actually exists
 
     romkan_set_lang( szLang );     // This may not actually be needed (?)
 
     // romkan_init() parameters:
-    //   pszPath                Filespec of the main 'mode' table
+    //   pszPath                Filespec of the main romkan config table ('mode')
     //   0x08                   Value of the 'delete' character code
     //   *NextCharacter         Pointer to character-read function
     //   *CharacterByteCount    Pointer to character byte-count function
@@ -224,7 +246,7 @@ INT _Optlink InitInputMethod( PSZ pszPath, USHORT usLang )
         cpEUC = GetEucCodepage( usLang );
         rc = CreateUconvObject( cpEUC, &uconvEUC );
         if ( rc )
-            sprintf( global.szEngineError, "Failed to create conversion object for codeoage %u (error %u). The OS/2 codepage file might not be installed.", cpEUC, rc );
+            sprintf( global.szEngineError, "Failed to create conversion object for codepage %u (error %u). The OS/2 codepage file might not be installed.", cpEUC, rc );
     }
 
     if (( rc == NO_ERROR ) && ( usLang == MODE_JP )) {
@@ -243,7 +265,7 @@ INT _Optlink InitInputMethod( PSZ pszPath, USHORT usLang )
  * Close down the input method engine and free any associated resources      *
  * (romkan doesn't utilize any cleanup functions so there's not much to do). *
  * ------------------------------------------------------------------------- */
-void _Optlink FinishInputMethod( void )
+void IM_CALLCNV FinishInputMethod( void )
 {
     if ( uconvEUC != NULL )
         UniFreeUconvObject( uconvEUC );
@@ -257,7 +279,7 @@ void _Optlink FinishInputMethod( void )
  *                                                                           *
  * Applies a ULS transformation to a UCS-2 string.                           *
  * ------------------------------------------------------------------------- */
-INT _Optlink StrTransform( UniChar *puszString, INT iMax, XformObject xform )
+INT IM_CALLCNV StrTransform( UniChar *puszString, INT iMax, XformObject xform )
 {
     int iLen,
         iOut,
@@ -285,7 +307,7 @@ INT _Optlink StrTransform( UniChar *puszString, INT iMax, XformObject xform )
  *                                                                           *
  * Transforms an already-converted kana string into fullwidth katakana.      *
  * ------------------------------------------------------------------------- */
-INT _Optlink MakeKatakana( void )
+INT IM_CALLCNV MakeKatakana( void )
 {
     StrTransform( global.uszKana, sizeof( global.uszKana ), xfKatakana );
     return 0;
@@ -297,10 +319,20 @@ INT _Optlink MakeKatakana( void )
  *                                                                           *
  * Transforms an already-converted kana string into halfwidth katakana.      *
  * ------------------------------------------------------------------------- */
-INT _Optlink MakeHalfKana( void )
+INT IM_CALLCNV MakeHalfKana( void )
 {
-    // TODO
+    USHORT   iMax;
+    UniChar *puszTemp;
 
+    iMax = sizeof( global.uszKana );
+
+    puszTemp = (UniChar *) calloc( iMax, sizeof( UniChar ));
+    if ( !puszTemp ) return ERROR_NOT_ENOUGH_MEMORY;
+
+    if ( ConvertHankaku( global.uszKana, *puszTemp, iMax ) > 0 )
+        UniStrcpy( global.uszKana, puszTemp );
+
+    free( puszTemp );
     return 0;
 }
 
@@ -308,7 +340,7 @@ INT _Optlink MakeHalfKana( void )
 /* ------------------------------------------------------------------------- *
  * PreprocessKana                                                            *
  *                                                                           *
- * This function checks for and converts certain kana sequences not handled  *
+ * This function checks for and converts certain sequences not handled       *
  * by romkan_henkan()'s normal hiragana logic.  This is done before the call *
  * to romkan_henkan(), and thus also prior to the output buffer's conversion *
  * from EUC to UCS-2.  Therefore, this function generates EUC output.        *
@@ -325,7 +357,7 @@ INT _Optlink MakeHalfKana( void )
  * (meaning we found & converted a sequence) or KANA_PENDING (in which case  *
  * the calling function will proceed to use romkan_henkan() as usual).       *
  * ------------------------------------------------------------------------- */
-BYTE _Optlink PreprocessKana( USHORT fsMode, PUSHORT pusIn, PUSHORT pusOut, PSZ pszOutput, USHORT cbOutput )
+BYTE IM_CALLCNV PreprocessKana( USHORT fsMode, PUSHORT pusIn, PUSHORT pusOut, PSZ pszOutput, USHORT cbOutput )
 {
 
 #define NUM_SPEC_KATAKANA 27
@@ -357,8 +389,9 @@ BYTE _Optlink PreprocessKana( USHORT fsMode, PUSHORT pusIn, PUSHORT pusOut, PSZ 
     PSZ    pszInput;
     BYTE   result = KANA_PENDING;
 
+    pszInput = (PSZ)(global.szRomaji) + *pusIn;
+
     if ( IS_INPUT_MODE( fsMode, MODE_KATAKANA )) {
-        pszInput = (PSZ)(global.szRomaji) + *pusIn;
         for ( index = 0; index < NUM_SPEC_KATAKANA; index++ ) {
             if ( strcmpi( pszInput, aszSpcKataIn[ index ] ) == 0 ) {
                 strncat( pszOutput, aszSpcKataOut[ index ], cbOutput );
@@ -369,6 +402,15 @@ BYTE _Optlink PreprocessKana( USHORT fsMode, PUSHORT pusIn, PUSHORT pusOut, PSZ 
             }
         }
     }
+
+    // Convert tilde to wavy dash (any conversion mode)
+    if (( result != KANA_COMPLETE ) && ( *pszInput == 0x7E )) {
+        strncat( pszOutput, "¡Á", cbOutput );
+        *pusIn  += 1;
+        *pusOut += 2;
+        result = KANA_COMPLETE;
+    }
+
     return result;
 }
 
@@ -400,7 +442,7 @@ BYTE _Optlink PreprocessKana( USHORT fsMode, PUSHORT pusIn, PUSHORT pusOut, PSZ 
  *                  buffers), or continue to add characters (in which case   *
  *                  the caller should keep the input buffer and continue).   *
  * ------------------------------------------------------------------------- */
-BYTE _Optlink ConvertPhonetic( USHORT fsMode )
+BYTE IM_CALLCNV ConvertPhonetic( USHORT fsMode )
 {
     CHAR   szOutput[ 8 ];       // should be big enough for any known sequence
     USHORT i, j,                // index variables
@@ -527,19 +569,19 @@ INT IM_CALLCNV InitConversionMethod( PSZ pszPath, USHORT usLang, PVOID *ppSessio
     PSZ     pszEnv,                 // Return pointer for getenv()
             pszServer,              // Host address of jserver
             pszUser;                // User/environment name to use on the server
-    USHORT  cpEUC;
-    CHAR    szLang[ 6 ];
-    CHAR    szEnvRC[ CCHMAXPATH ];
-    CHAR    fzk[ 1024 ] = {0};
-    ULONG   rc;
-    INT     result = CONV_OK;
+    USHORT  cpEUC;                  // The EUC codepage for the current language
+    CHAR    szLang[ 6 ];            // The current language locale (e.g. "ja_JP")
+    CHAR    szEnvRC[ CCHMAXPATH ];  // Path to the environment configuration file
+    CHAR    fzk[ 1024 ] = {0};      // Name of the auxiliary dictionary
+    ULONG   rc;                     // Called API return code
+    INT     result = CONV_OK;       // This function's return code
 
 
     if ( uconvEUC == NULL ) {
         cpEUC = GetEucCodepage( usLang );
         rc = CreateUconvObject( cpEUC, &uconvEUC );
         if ( rc ) {
-            sprintf( global.szEngineError, "Failed to create conversion object for codeoage %u (error %u). The OS/2 codepage file might not be installed.", cpEUC, rc );
+            sprintf( global.szEngineError, "Failed to create conversion object for codepage %u (error %u). The OS/2 codepage file might not be installed.", cpEUC, rc );
             return CONV_CONNECT;
         }
     }
@@ -569,13 +611,19 @@ INT IM_CALLCNV InitConversionMethod( PSZ pszPath, USHORT usLang, PVOID *ppSessio
     pszUser = strdup( pszEnv? pszEnv: "root");
 
     if ( pszPath == NULL ) {
+        CHAR szPathBuf[ CCHMAXPATH ];
+        CHAR *c;
+
         pszPath = getenv("WNNLIB");
         if ( pszPath )
-            strncpy( szEnvRC, pszPath, CCHMAXPATH - 10 );
+            strncpy( szPathBuf, pszPath, CCHMAXPATH - 16 );
         else
-            sprintf( szEnvRC, "/@unixroot/usr/lib/Wnn/%.5s", szLang );
-        strcat( szEnvRC, "/wnnenvrc");
+            strcpy( szPathBuf, "/@unixroot/usr/lib/wnn");
+        while (( c = strchr( szPathBuf, '\\')) != NULL ) *c = '/';
+        sprintf( szEnvRC, "%.240s/%.5s/wnnenvrc", szPathBuf, szLang );
     }
+
+    _PmpfF(("Opening Wnn jlib engine (%s) on %s for user %s", szLang, pszServer, pszUser ));
 
     // Connect to the server.
     bdata = jl_open_lang( pszUser, pszServer, szLang, NULL, *ErrorFunc, *ErrorFunc, 0 );
@@ -588,8 +636,26 @@ INT IM_CALLCNV InitConversionMethod( PSZ pszPath, USHORT usLang, PVOID *ppSessio
         goto done_connect;
     }
 
+    /* We don't actually use the returned value, but asking for the current
+     * auxiliary dictionary is a good way to see if the environment exists.
+     */
     if ( jl_fuzokugo_get( bdata, fzk ) == -1 ) {
         //  Environment isn't active on server, so initialize it now.
+        _PmpfF(("Initializing environment %s", szEnvRC ));
+
+/*
+        // Check to make sure the local configuration file exists
+        // Note - this doesn't work with /@unixroot in the string, since
+        //        unlike the Wnn server, we are not using kLIBC
+        if ( stat( szEnvRC, &st ) == -1 ) {
+            sprintf( global.szEngineError,
+                     "Configuration file not found: %.225s",
+                     szEnvRC );
+            result = CONV_CONNECT;
+            jl_close( bdata );
+            goto done_connect;
+        }
+*/
         wnnenv = jl_env_get( bdata );
         jl_set_env_wnnrc( wnnenv, szEnvRC, (int *) WNN_CREATE, NULL );
     }
@@ -619,9 +685,14 @@ void IM_CALLCNV FinishConversionMethod( PVOID pSession )
         if ( jl_bun_suu( bdata ))
             jl_kill( bdata, 0, -1 );
 
-        // Now close the connection (also frees the buffer)
-        if ( jl_isconnect( bdata ))
+        if ( jl_isconnect( bdata )) {
+#if 0
+            // Update all dictionaries and frequency files
+            jl_dic_save_all( bdata );
+#endif
+            // Now close the connection (also frees the buffer)
             jl_close( bdata );
+        }
     }
 }
 
@@ -796,7 +867,7 @@ BYTE IM_CALLCNV ConvertPhrase( PVOID pSession, UniChar *puszPhrase )
  * PARAMETERS:                                                               *
  *   PVOID pSession: Pointer to Wnn data buffer.                             *
  *   INT   iPhrase : First phrase in the clause to retrieve (first = 0)      *
- *   INT   iCount  : Number of phrases to retrieve (-1 for rest of clause)   *
+ *   INT   iLast  : Last phrase to retrieve (-1 for rest of clause)         *
  *                   (If retrieving a candidate for a phrase, then -1 can be *
  *                   used, since the candidate has only the one phrase.)     *
  *   BOOL  fReading: If TRUE, return unconverted reading instead of kanji.   *
@@ -810,7 +881,7 @@ BYTE IM_CALLCNV ConvertPhrase( PVOID pSession, UniChar *puszPhrase )
  *   CONV_FAILED   Failed to retrieve string.                                *
  *   CONV_OK       String retrieved successfully.                            *
  * ------------------------------------------------------------------------- */
-BYTE IM_CALLCNV GetConvertedString( PVOID pSession, INT iPhrase, INT iCount, BOOL fReading, UniChar **ppuszString )
+BYTE IM_CALLCNV GetConvertedString( PVOID pSession, INT iPhrase, INT iLast, BOOL fReading, UniChar **ppuszString )
 {
     INT     iLen;                       // Buffer length
     BYTE    bResult = CONV_FAILED;      // Return code from this function
@@ -826,8 +897,8 @@ BYTE IM_CALLCNV GetConvertedString( PVOID pSession, INT iPhrase, INT iCount, BOO
     }
 
     // Get the requested string length
-    iLen = fReading? jl_yomi_len( bdata, iPhrase, iCount ) :
-                     jl_kanji_len( bdata, iPhrase, iCount );
+    iLen = fReading? jl_yomi_len( bdata, iPhrase, iLast ) :
+                     jl_kanji_len( bdata, iPhrase, iLast );
     if ( !iLen ) {
         if ( !global.szEngineError[0] )
             // Set a generic error message if FreeWnn didn't provide one
@@ -843,8 +914,8 @@ BYTE IM_CALLCNV GetConvertedString( PVOID pSession, INT iPhrase, INT iCount, BOO
     }
 
     // Now retrieve the requested string or substring(s)
-    iLen = fReading? jl_get_yomi( bdata, iPhrase, iCount, kanji ) :
-                     jl_get_kanji( bdata, iPhrase, iCount, kanji );
+    iLen = fReading? jl_get_yomi( bdata, iPhrase, iLast, kanji ) :
+                     jl_get_kanji( bdata, iPhrase, iLast, kanji );
     if ( iLen > 0 ) {
         // Convert to standard EUC, allowing up to 3 bytes per input character
         iLen *= 3;
@@ -872,7 +943,9 @@ done:
 
 
 /* ------------------------------------------------------------------------- *
+ * GetPhraseCount                                                            *
  *                                                                           *
+ * Returns the number of word-phrases in the current clause buffer.          *
  * ------------------------------------------------------------------------- */
 INT IM_CALLCNV GetPhraseCount( PVOID pSession )
 {
@@ -889,7 +962,11 @@ INT IM_CALLCNV GetPhraseCount( PVOID pSession )
 
 
 /* ------------------------------------------------------------------------- *
+ * PrepareCandidates                                                         *
  *                                                                           *
+ * Generate the possible conversion candidates for the current data.  Once   *
+ * this function has been called, the candidates can be enumerated using     *
+ * GetPhraseCount, or selected using SetCandidate.                           *
  * ------------------------------------------------------------------------- */
 INT IM_CALLCNV PrepareCandidates( PVOID pSession )
 {
@@ -913,7 +990,9 @@ INT IM_CALLCNV PrepareCandidates( PVOID pSession )
 
 
 /* ------------------------------------------------------------------------- *
+ * GetCandidateCount                                                         *
  *                                                                           *
+ * Get the number of available conversion candidates in the data buffer.     *
  * ------------------------------------------------------------------------- */
 INT IM_CALLCNV GetCandidateCount( PVOID pSession )
 {
@@ -960,6 +1039,33 @@ INT IM_CALLCNV SetCandidate( PVOID pSession, BOOL fNext )
         rc = jl_next( bdata );
     else
         rc = jl_previous( bdata );
+
+    return rc;
+}
+
+
+/* ------------------------------------------------------------------------- *
+ * UpdateFrequency                                                           *
+ *                                                                           *
+ * Update the frequency (candidate weighting) for the indicated phrases.     *
+ *                                                                           *
+ * PARAMETERS:                                                               *
+ *   PVOID pSession: Pointer to Wnn data buffer.                             *
+ *   INT   iPhrase : First phrase in the clause to update (first = 0)        *
+ *   INT   iLast   : Last phrase to update (-1 for rest of clause)           *
+ * ------------------------------------------------------------------------- */
+INT IM_CALLCNV UpdateFrequency( PVOID pSession, INT iPhrase, INT iLast )
+{
+    struct wnn_buf *bdata = pSession;   // Wnn session buffer
+    INT rc;
+
+    // Double-check we are connected to the server
+    if ( !bdata || !jl_isconnect( bdata )) {
+        strcpy( global.szEngineError, "Lost connection to server.");
+        return CONV_CONNECT;
+    }
+
+    rc = jl_update_hindo( bdata, iPhrase, iLast );
 
     return rc;
 }

@@ -6,9 +6,8 @@ typing East Asian (CJK) text under Presentation Manager.
 
 Specifically, WnnIM itself is the front-end processor component, and is designed
 to work in conjunction with the open source FreeWnn IME engine on the back-end.
-As such, it will (when finished) require the FreeWnn server for the desired
-language to be installed and running (not necessarily on the same computer, but
-accessible via TCP/IP).
+As such, it requires the FreeWnn server for the desired language to be installed 
+and running (not necessarily on the same computer, but accessible via TCP/IP).
 
 Only Presentation Manager (OS/2 graphical) sessions are supported; DOS and
 Win-OS/2 sessions are not.  OS/2 command lines are not supported either,
@@ -21,19 +20,26 @@ is planned for future releases.
 For Users
 ---------
 
+### Installing FreeWnn (prerequisite)
+
 The FreeWnn server and runtime files are required.  These are provided in the
 FreeWnn RPM packages, which should soon be available from a repository near you;
-in the meantime, you can get `FreeWnn-1.1.1-0.a023.0.i386.rpm` from
-[here](https://drive.google.com/drive/folders/0B_CmLQmhb3PzelRpakJ6OXl3YnM).
+in the meantime, you can get `FreeWnn-1.1.1-0.a023.1.i386.rpm` from
+[here](https://drive.google.com/file/d/1JmNSX-I38-6eaGrbLewF9kiKDB_UixyL/view?usp=sharing).
+
+Reboot after installing the FreeWnn RPM.
+
+#### Running FreeWnn remotely (optional)
 
 If you prefer not to install the FreeWnn server locally, you can set it up
 to use an installation of FreeWnn anywhere on your network (for example, on
-a Linux box).  In this case, you will still need to install the runtime files
-locally, which you can do by following these steps:
+a separate Linux box).  In this case, you will still need to install the 
+runtime files locally, which you can do by following these steps:
 
 1. Extract `wnn0.dll` from the RPM and place it in a directory on your LIBPATH.
 2. Extract the contents of `usr\lib\wnn` (including all subdirectories); 
-   place them somewhere convenient (e.g. `E:\usr\local\lib\wnn`).
+   place them somewhere convenient (e.g. `E:\usr\local\lib\wnn`).  (Note: The
+   maximum allowed length of this path is 200 characters.)
 3. Set the environment variable `WNNLIB` to the fully-qualified path of
    the directory in step (2) (e.g. `SET WNNLIB=E:\usr\local\lib\wnn`).
    This allows WnnIM to locate the Wnn configuration files.
@@ -42,18 +48,77 @@ locally, which you can do by following these steps:
    (e.g. `SET JSERVER=localhost:1`).  (The instance number is usually 1,
    at least for the Japanese FreeWnn server; it corresponds to the `-N` 
    parameter specified on the server command line.)
+5. Shut down and reboot.
 
 The above steps are not needed if you installed the FreeWnn RPM.
 
-To run WnnIM itself, make sure `wnnhook.dll` and `wnnim.exe` are in the same
-directory, and run 'wnnim.exe' to start the IME.  The actual UI is a small
-window located by default at the bottom right of your screen (you can move it
-around by dragging).  The UI consists of two small buttons and a status panel.
+### Installing WnnIM
 
- * The button labelled 'I' toggles input conversion on or off.  You can also
-   toggle this setting using Ctrl+Space.
- * The button labelled 'C' toggles CJK clause conversion on or off.  You can
-   also toggle this setting using Ctrl+Shift.
+Make sure FreeWnn is available (using either method described above).  
+
+You can install WnnIM from RPM using the rpm command line or a program like 
+ANPM.  Alternatively, you can install it manually using the following steps:
+
+1. Place `wnnhook.dll` and `wnnim.exe` together in a directory of your choice.
+
+   (Optionally, put the files with names ending in `.xqs` in the same directory;
+   these are used for debugging but are not required for normal use.)
+
+2. Place the `rk` directory and its contents somewhere.  
+
+   You can put these files into `%UNIXROOT%\usr\lib\wnn\ja_JP\rk`, which is 
+   created by the FreeWnn installer (or in `ja_JP\rk` under whatever path is
+   defined by the environment variable %WNNLIB%, if set).  If you do this, 
+   note that the file `1B_TOUPPER` is identical to the one included with
+   FreeWnn, and can be omitted in this case (the other files, however, are 
+   required).  If you put the files in this location, then edit your CONFIG.SYS
+   file and add the line `SET ROMKAN_TABLE=modew`.  
+
+   If you put these files in any location other than the above, then edit 
+   CONFIG.SYS and add the line `SET ROMKAN_TABLE=<rk_path>\modew`, where
+   `<rk_path>` is the fully-qualified path to the files.
+
+   *Note:* In either case, you can specify `modec` instead of `modew` in the
+   aforementioned ROMKAN_TABLE value.  Doing so will change the romaji input
+   configuration slightly -- see below for the differences.  
+
+   Reboot after updating CONFIG.SYS.
+
+3. Create a program object for `wnnim.exe` if you desire.
+
+
+#### `modew` vs `modec`
+
+Two different configuration files for romaji-to-kana input conversion are
+provided.  You can choose which one to use, according to your preference:
+
+ * `modew` is designed to work similarly to the Japanese IME on Windows.
+   Of note is that in order to enter a 'ん' or 'ン' kana, you must type 'NN'.
+   (Thus, to enter the word 'みんな', you type 'MINNNA'.)
+
+ * `modec` is a custom configuration file with a few key differences from
+   `modew`.  First, you enter 'ん' or 'ン' by typing 'N' _once_, followed by
+   either an apostrophe ('), a punctuation character, or any letter other than
+   a vowel -- or, in clause conversion mode, activating clause conversion or
+   accepting the current clause.  (Thus, to enter the word 'みんな', you type
+   'MINNA'.)  This behaviour is more like that of older non-Windows IMEs.
+
+   Second, with this configuration file, typing 'TU' or 'DU' while in katakana
+   input mode will produce トゥ or ドゥ, respectively (type 'TSU'/'TZU' to 
+   produce 'ツ'/'ヅ'); and typing 'TI/DI' will similarly produce 'ティ'/'ディ' 
+   (type 'CHI'/'DZI' for 'チ'/'ヂ').  These special sequences apply _only_ when
+   typing in katakana (not hiragana).
+
+### Using WnnIM
+
+Run `wnnim.exe` to start the IME.  The WnnIM user interface consists of a small
+window located (by default) at the bottom right of your screen (you can move it
+around by dragging).  This UI consists of two small buttons and a status panel.
+
+ * The button labelled 'I' (or '入') toggles input conversion on or off.  You 
+   can also toggle this setting using Ctrl+Space.
+ * The button labelled 'C' (or '変') toggles CJK clause conversion on or off.  
+   You can also toggle this setting using Ctrl+Shift.
 
 There is also a popup context menu which allows you to do various things, such
 as select the input conversion mode (currently hiragana, katakana and fullwidth
@@ -69,11 +134,30 @@ When in clause conversion mode, the following hotkey commands apply:
     Esc:              Cancel conversion (this will clear the current clause text)
     Backspace or Del: Delete the last character
 
-The active mode is global, i.e. switching from one program to another will
-retain the current conversion mode.  
+The currently-active mode is system wide, i.e. switching from one program to 
+another will retain the current conversion mode.  (This may change in the 
+future.)
 
 Most of the aforementioned hotkey commands (except for Esc and Backspace) can be 
 changed via the settings dialog.
+
+Romaji input works much the same way as it does in other IMEs (subject to the
+differences between the `modew` and `modec` configuration files noted above).
+However, some possibly non-obvious input sequences include:
+
+	TYA	ちゃ		DYA	ぢゃ
+	TYI	てぃ		DYI	でぃ
+	TYU	ちゅ		DYU	ぢゅ
+	TYE	ちぇ		DYE	ぢぇ
+	TYO	ちょ		DYO	ぢょ
+	XTI	てぃ		XDI	でぃ
+	XDU	どぅ		XDE	でぇ
+	XDO	どぉ		XWI	うぃ
+	XWE	うぇ		XWO	うぉ
+	Z.	…		Z-	〜
+	Z/	＼
+
+(The above apply to both hiragana and katakana input.)
 
 
 For Developers
@@ -88,7 +172,7 @@ GCC or another compiler would probably require some changes to this approach.
 
 Building the client application requires the FreeWnn library and header files;
 these are included in the `FreeWnn-devel` RPM (provisionally available from
-[here](https://drive.google.com/drive/folders/0B_CmLQmhb3PzelRpakJ6OXl3YnM).)
+[here](https://drive.google.com/file/d/1kkFA7U91gejOzuY16-U6Jsdm6Ncxwnl1/view?usp=sharing).)
 
 All the FreeWnn-specific code is isolated in one or two source files.  In
 principle, the rest of the WnnIM code could probably be used to implement an IME
@@ -180,25 +264,54 @@ exported by the library and so were simply lifted from the sources.
 `ids.h` defines various resource and message IDs used by both the client and the
 PM hook.
 
+### Environment variables
+
+The following environment variables affect the operation of WnnIM/2:
+
+ * `JSERVER`: Indicates the host and instance number where the FreeWnn server
+    is running.  For most local installations this will be `localhost:1`.
+
+ * `WNNLIB`: Indicates the path to the FreeWnn configuration files.  (This path
+    may be no more than 200 characters long.)  If not defined, WnnIM/2 will look
+    for them under the directory `%UNIXROOT%\usr\lib\wnn`.  
+
+ * `ROMKAN_TABLE`: Indicates a custom romaji input conversion table to be used.
+    If this value includes a path specifier, it is taken as the fully-qualified
+    name of the conversion table file.  If it contains a filename only, that 
+    file is assumed to be located under the usual FreeWnn configuration file 
+    directory (determined as described above), in the subdirectory `<lang>\rk`
+    (in this case the name of the file without the path cannot be longer than
+    49 characters).  If this environment variable is not defined, the default 
+    FreeWnn romaji conversion table (`mode` in the aforementioned directory) 
+    will be used.
+
 
 Limitations
 -----------
 
 1. In general, an application must be running under the corresponding DBCS
    codepage in order for WnnIM text entry to work.  This is especially true
-   for applications that try to interpret text intelligently (e.g. by
-   converting into Unicode).  For reference, the relevant codepages are:
+   for applications that try to interpret text intelligently based on the
+   codepage (e.g. by converting into Unicode).  For reference, the relevant
+   codepages are:
 
     - Japanese: 932
     - Korean: 949
     - Simplified Chinese: 1386
     - Traditional Chinese: 950
 
+   Note that running under these codepages without also using the corresponding
+   language OS version and keyboard driver may prevent you from typing certain 
+   characters (mainly tilde and backslash).
+
 2. For the characters to display properly in the application, it will need to
-   use fonts that support the language in question.  For programs which use
-   standard PM controls or GPI text rendering, it may be possible to make use
-   of Presentation Manager's "font association" feature (PM_SystemFonts ->
-   PM_AssociateFont in OS2.INI), although this has certain limitations.
+   use fonts that support the language in question.  In other words, Japanese
+   text requires the target program to be using a Japanese font (in addition
+   to the Japanese codepage, as noted above).  If you would rather not change
+   a program's font to Japanese, then it may be possible to make use of
+   Presentation Manager's "font association" feature (`PM_SystemFonts` ->
+   `PM_AssociateFont` in OS2.INI), at least for programs which use standard PM
+   controls or GPI text rendering.  However, this does have certain limitations.
 
 3. Not all applications support positioning of the clause overlay window at the
    cursor.  (Qt-based applications are an example, as is OpenOffice.)  In such
